@@ -1,0 +1,80 @@
+YouTube Real-time Sentiment Analysis Project - Requirements Gathering Document
+
+PROJECT SCOPE:
+- Fetch top 10 trending YouTube videos in Canada (regionCode CA)
+- Pull recent top-level comments per video (bounded for quota reliability)
+- Run sentiment analysis via NLTK VADER
+- Show a simple, informative Streamlit dashboard with refresh
+
+PROJECT STRUCTURE:
+- streamlit_app.py: Streamlit UI, orchestrates data fetch, analysis, and display
+- youtube_api.py: YouTube Data API client functions (trending videos, comments)
+- sentiment.py: VADER analyzer wrapper and helpers
+- config.py: Settings (API key loading, constants)
+- requirements.txt: Dependencies
+- .env.example: Example env with YOUTUBE_API_KEY=
+- README.md: Setup and usage
+
+KEY IMPLEMENTATION DETAILS:
+
+Config and Secrets:
+- Use python-dotenv to load YOUTUBE_API_KEY
+- In Streamlit, also support st.secrets["YOUTUBE_API_KEY"] if available; fallback to env var
+
+YouTube API (v3):
+- Trending: videos.list with chart=mostPopular, regionCode=CA, maxResults=10, part=snippet,statistics,contentDetails
+- Comments: commentThreads.list with videoId, part=snippet, order=time, maxResults=100. Paginate up to a small cap (e.g., 200-300 comments/video) to stay reliable
+- Handle quota and HTTP errors (retry with exponential backoff for 429/5xx, respectful delays; surface errors in UI)
+- Minimize fields where possible via fields param to reduce payloads
+
+Sentiment:
+- NLTK VADER: SentimentIntensityAnalyzer
+- Ensure vader_lexicon is available; download at startup if missing (guarded to run once)
+- Compute compound score for each comment; classify as Positive (≥ 0.05), Neutral (between), Negative (≤ -0.05)
+
+Caching & "Real-time" Refresh:
+- Use @st.cache_data(ttl=300) on fetch functions to auto-refresh every 5 minutes
+- Provide a "Refresh now" button that clears cache for immediate re-fetch
+
+UI/UX (Streamlit):
+- Sidebar controls:
+  - Region (fixed default CA but selectable for future-proofing)
+  - Max comments/video (50–300)
+  - Time-to-live (cache TTL)
+- Main panels:
+  - High-level KPIs: number of videos, total comments, overall sentiment mean
+  - Table of top 10 trending with per-video avg sentiment, views, like ratio
+  - Per-video expanders: distribution bar (pos/neu/neg), recent most positive/negative comments (with links), and a small comments table
+  - Optional: Simple histogram of compound scores
+- Refresh button at top
+
+Reliability & Limits:
+- Cap API calls (e.g., stop at first N videos with available comments)
+- Graceful degradation when comments are disabled or zero
+- Log and display concise error messages
+
+DEPENDENCIES:
+- streamlit, google-api-python-client (or requests), python-dotenv, pandas, nltk
+
+DELIVERABLES:
+- Working Streamlit app with a simple dashboard, refresh, and clear error messages
+- README with setup, obtaining API key, and how to run
+
+IMPLEMENTATION TODOS:
+1. Create project skeleton and files with placeholders
+2. Add requirements.txt and README with API key setup
+3. Implement config to load API key from secrets/env
+4. Implement function to fetch CA trending videos (top 10)
+5. Implement function to fetch recent comments with pagination cap
+6. Implement VADER analyzer and scoring helpers
+7. Build Streamlit UI: controls, KPIs, tables, expanders
+8. Add caching with TTL and refresh button
+9. Add retry/backoff and graceful UI errors
+
+TECHNICAL NOTES:
+- API Quota: YouTube Data API has daily quota limit (10,000 units by default)
+- Quota usage: ~1 unit for trending videos, ~1 unit per 100 comments
+- Total per refresh: ~10-30 units depending on comment count
+- Error handling: Graceful degradation for disabled comments, quota exceeded, etc.
+- Caching: 5-minute TTL with manual refresh option
+- Region: Default Canada (CA) but configurable for future expansion
