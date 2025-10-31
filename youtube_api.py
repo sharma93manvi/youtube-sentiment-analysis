@@ -75,3 +75,28 @@ def get_trending_videos(
             raise
         except Exception:
             raise
+
+def get_video_comments(
+    api_key: str,
+    video_id: str,
+    max_results: int = 200,
+    order: str = "time",
+    retries: int = 3,
+)-> List[Dict]:
+    """Get the comments for a given video: Fetch recent top-level comments"""
+    youtube = get_youtube_client(api_key)
+    params = {
+        "part": "snippet",
+        "videoId": video_id,
+        "maxResults": max_results,
+        "order": order,
+    }
+    for attempt in range(retries):
+        try:
+            response = youtube.commentThreads().list(**params).execute()
+            items = response.get("items", [])
+            return items
+        except HttpError as e:
+            if e.resp.status in [429, 500, 502, 503, 504]:
+                time.sleep(2 ** attempt)
+                continue
