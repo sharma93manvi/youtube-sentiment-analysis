@@ -30,13 +30,11 @@ pip install -r requirements.txt
 ### 3. Configure Environment
 
 Create a `.env` file in the project root:
-
-```bash
-cp .env.example .env
-```
-
 Edit `.env` and add your API key:
 
+```bash
+YOUTUBE_API_KEY=your-api-key
+```
 
 ### 4. How to run: 
 

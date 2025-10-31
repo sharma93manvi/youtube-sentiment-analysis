@@ -29,4 +29,4 @@ ENV/
 Thumbs.db
 
 # NLTK data
-nltk_data/
+nltk_data/.venv/
