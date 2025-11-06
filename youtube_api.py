@@ -83,20 +83,61 @@ def get_video_comments(
     order: str = "time",
     retries: int = 3,
 )-> List[Dict]:
-    """Get the comments for a given video: Fetch recent top-level comments"""
+    """Get the comments for a given video with pagination support.
+    
+    Fetches up to max_results comments, paginating through API pages.
+    API returns max 100 per page, so we paginate to get more.
+    """
     youtube = get_youtube_client(api_key)
-    params = {
-        "part": "snippet",
-        "videoId": video_id,
-        "maxResults": max_results,
-        "order": order,
-    }
-    for attempt in range(retries):
-        try:
-            response = youtube.commentThreads().list(**params).execute()
-            items = response.get("items", [])
-            return items
-        except HttpError as e:
-            if e.resp.status in [429, 500, 502, 503, 504]:
-                time.sleep(2 ** attempt)
-                continue
+    all_items = []
+    page_token = None
+    per_page = min(100, max_results)  # API max is 100 per page
+    
+    while len(all_items) < max_results:
+        params = {
+            "part": "snippet",
+            "videoId": video_id,
+            "maxResults": per_page,
+            "order": order,
+        }
+        
+        if page_token:
+            params["pageToken"] = page_token
+        
+        # Retry logic for this page
+        attempt = 0
+        while attempt <= retries:
+            try:
+                response = youtube.commentThreads().list(**params).execute()
+                break  # Success, exit retry loop
+            except HttpError as e:
+                attempt += 1
+                if attempt > retries:
+                    raise  # Re-raise if exhausted retries
+                
+                status_code = e.resp.status if hasattr(e, 'resp') else None
+                if status_code == 429 or (status_code and 500 <= status_code < 600):
+                    wait_time = 2 ** (attempt - 1)
+                    time.sleep(wait_time)
+                else:
+                    raise  # Non-retryable error
+            except Exception:
+                raise
+        
+        # Add items from this page
+        items = response.get("items", [])
+        all_items.extend(items)
+        
+        # Check if we've reached our limit
+        if len(all_items) >= max_results:
+            return all_items[:max_results]
+        
+        # Check for next page
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break  # No more pages
+        
+        # Small delay between pages to be respectful
+        time.sleep(0.1)
+    
+    return all_items
