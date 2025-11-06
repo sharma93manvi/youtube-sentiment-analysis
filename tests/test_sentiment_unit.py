@@ -38,3 +38,5 @@ def test_score_comment_handles_none(mock_ga):
     out = score_comment(None)  # type: ignore[arg-type]
     assert out["label"] == "neutral"
 
+
+
