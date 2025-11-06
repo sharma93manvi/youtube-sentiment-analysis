@@ -1,9 +1,14 @@
 import os
 from typing import Optional
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Try to load dotenv if available (for local development)
+# On Streamlit Cloud, secrets are managed via st.secrets, so dotenv isn't needed
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available (e.g., on Streamlit Cloud) - that's okay
+    pass
 
 def get_api_key(st_secrets: Optional[dict] = None) -> str:
     """Return the YouTube API key from Streamlit secrets or environment."""

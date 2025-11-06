@@ -81,7 +81,8 @@ with col3:
 st.markdown("---")
 
 # Read config
-api_key = get_api_key()
+# Pass st.secrets for Streamlit Cloud compatibility (secrets are always available in Streamlit)
+api_key = get_api_key(st.secrets)
 region = get_region()
 max_comments = get_max_comments()
 
@@ -315,7 +316,7 @@ def create_sparkline(time_series, width=120, height=30):
     '''
 
 # Custom Video Analysis Section
-st.markdown("### 🔍 Analyze Any YouTube Video")
+st.markdown("### Analyze a YouTube Video")
 st.markdown("Enter a YouTube video link to get instant sentiment analysis:")
 
 # Initialize session state for custom video
@@ -420,7 +421,7 @@ elif st.session_state.custom_video_analyzed:
     video_details = st.session_state.custom_video_analyzed["video"]
     sentiment_data = st.session_state.custom_video_analyzed["sentiment"]
     
-    with st.expander(f"📊 Analysis Results: {video_details['title']}", expanded=True):
+    with st.expander(f"Analysis Results: {video_details['title']}", expanded=True):
         # Video info
         st.markdown("#### Video Information")
         info_cols = st.columns(4)
@@ -473,7 +474,7 @@ elif st.session_state.custom_video_analyzed:
             st.markdown(f"<div style='display: flex; justify-content: center;'>{sparkline_html}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("### 📈 Trending Videos Analysis")
+st.markdown("### Trending Videos Analysis")
 
 @st.cache_data(ttl=300)
 def fetch_trending_videos(api_key: str, region: str, max_results: int = 10):
