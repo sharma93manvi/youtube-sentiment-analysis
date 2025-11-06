@@ -2,21 +2,80 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from config import get_api_key, get_region, get_max_comments
-from youtube_api import get_trending_videos, get_video_comments
+from youtube_api import get_trending_videos, get_video_comments, extract_video_id, get_video_details
 from sentiment import score_comment
 
-st.set_page_config(page_title="YouTube Sentiment Analysis", layout="wide")
+st.set_page_config(page_title="YouTube Sentiment Analysis", layout="wide", initial_sidebar_state="collapsed")
+
+# Custom CSS for better styling
+st.markdown("""
+    <style>
+    /* Main title styling */
+    h1, h2, h3 {
+        color: #1f2937;
+    }
+    
+    /* KPI cards styling */
+    [data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+        font-weight: 600;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        font-size: 0.9rem;
+        color: #6b7280;
+        font-weight: 500;
+    }
+    
+    /* Table row styling */
+    .stButton > button {
+        border-radius: 6px;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    /* Selectbox styling */
+    [data-baseweb="select"] {
+        border-radius: 6px;
+    }
+    
+    /* Better spacing */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    
+    /* Caption styling */
+    .stCaption {
+        color: #6b7280;
+        font-size: 0.85rem;
+    }
+    
+    /* Divider styling */
+    hr {
+        margin: 1.5rem 0;
+        border: none;
+        border-top: 1px solid #e5e7eb;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Header with title, timestamp, and controls
+st.markdown("<h1 style='margin-bottom: 0.5rem;'>YouTube Sentiment Intelligence Dashboard</h1>", unsafe_allow_html=True)
+
 col1, col2, col3 = st.columns([4, 1, 1])
 with col1:
-    st.markdown("### Trending Videos Analysis")
+    st.markdown("<p style='color: #6b7280; margin-top: 0;'>Provides real-time sentiment analysis and trend insights for trending YouTube videos based on recent comments,<br>along with a 24-hour trend visualization for popular videos.</p>", unsafe_allow_html=True)
 with col2:
-    st.caption(f"Updated {datetime.now().strftime('%b %d, %I:%M %p')}")
-with col3:
-    st.caption("Top")
+    st.caption("**Top**")
     max_results = st.slider("", 1, 20, 10, key="max_results", label_visibility="collapsed")
-    if st.button("↻ Refresh", use_container_width=True):
+with col3:
+    st.caption(f"**Updated:** {datetime.now().strftime('%b %d, %I:%M %p')}")
+    if st.button("↻ Refresh", use_container_width=True, type="secondary"):
         st.cache_data.clear()
 
 st.markdown("---")
@@ -26,10 +85,7 @@ api_key = get_api_key()
 region = get_region()
 max_comments = get_max_comments()
 
-@st.cache_data(ttl=300)
-def fetch_trending_videos(api_key: str, region: str, max_results: int = 10):
-    return get_trending_videos(api_key, region=region, max_results=max_results)
-
+# Define helper functions (used by both custom video and trending videos sections)
 def generate_overall_analysis(sentiment_data: dict) -> str:
     """Generate a 2-3 line overall analysis based on sentiment data and trend."""
     total = sentiment_data["total"]
@@ -199,11 +255,6 @@ def analyze_video_sentiment(api_key: str, video_id: str, max_comments: int = 200
         st.error(f"Error analyzing video {video_id}: {str(e)}")
         return None
 
-videos = fetch_trending_videos(api_key, region, max_results)
-if not videos:
-    st.info("No trending videos found")
-    st.stop()
-
 def create_distribution_bar(pos_pct, neu_pct, neg_pct, width=100):
     """Create HTML bar for sentiment distribution."""
     pos_width = pos_pct
@@ -263,6 +314,176 @@ def create_sparkline(time_series, width=120, height=30):
     </svg>
     '''
 
+# Custom Video Analysis Section
+st.markdown("### 🔍 Analyze Any YouTube Video")
+st.markdown("Enter a YouTube video link to get instant sentiment analysis:")
+
+# Initialize session state for custom video
+if "custom_video_url" not in st.session_state:
+    st.session_state.custom_video_url = ""
+if "custom_video_analyzed" not in st.session_state:
+    st.session_state.custom_video_analyzed = None
+
+# Input section
+col1, col2 = st.columns([4, 1])
+with col1:
+    video_url = st.text_input(
+        "YouTube Video URL",
+        value=st.session_state.custom_video_url,
+        placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/...",
+        label_visibility="collapsed",
+        key="video_url_input"
+    )
+with col2:
+    analyze_button = st.button("🔍 Analyze", use_container_width=True, type="primary")
+
+# Process custom video analysis
+if analyze_button:
+    st.session_state.custom_video_url = video_url
+    video_id = extract_video_id(video_url)
+    
+    if not video_id:
+        st.error("❌ Invalid YouTube URL. Please enter a valid YouTube video link.")
+    else:
+        with st.spinner("Fetching video details and analyzing sentiment..."):
+            # Get video details
+            video_details = get_video_details(api_key, video_id)
+            
+            if not video_details:
+                st.error("❌ Video not found or unable to fetch video details. Please check the URL and try again.")
+            else:
+                # Analyze sentiment
+                sentiment_data = analyze_video_sentiment(api_key, video_id, max_comments)
+                
+                if not sentiment_data:
+                    st.warning("⚠️ Could not analyze comments for this video. Comments may be disabled or unavailable.")
+                else:
+                    # Display results in an expandable section
+                    with st.expander(f"📊 Analysis Results: {video_details['title']}", expanded=True):
+                        # Video info
+                        st.markdown("#### Video Information")
+                        info_cols = st.columns(4)
+                        with info_cols[0]:
+                            st.metric("Views", f"{video_details['views']:,}")
+                        with info_cols[1]:
+                            st.metric("Likes", f"{video_details['likes']:,}")
+                        with info_cols[2]:
+                            st.metric("Comments", f"{video_details['comments']:,}")
+                        with info_cols[3]:
+                            sentiment_score = sentiment_data["avg_sentiment"]
+                            sentiment_emoji = "🟢" if sentiment_score >= 0.05 else "🔴" if sentiment_score <= -0.05 else "⚪"
+                            st.metric("Sentiment", f"{sentiment_emoji} {sentiment_score:.3f}")
+                        
+                        st.markdown(f"**Channel:** {video_details['channel']}")
+                        st.markdown(f"[Watch on YouTube](https://www.youtube.com/watch?v={video_id})")
+                        st.markdown("---")
+                        
+                        # Sentiment metrics
+                        st.markdown("#### Sentiment Breakdown")
+                        metric_cols = st.columns(3)
+                        with metric_cols[0]:
+                            st.metric("Positive", sentiment_data['positive'], f"{(sentiment_data['positive']/sentiment_data['total']*100):.1f}%")
+                        with metric_cols[1]:
+                            st.metric("Neutral", sentiment_data['neutral'], f"{(sentiment_data['neutral']/sentiment_data['total']*100):.1f}%")
+                        with metric_cols[2]:
+                            st.metric("Negative", sentiment_data['negative'], f"{(sentiment_data['negative']/sentiment_data['total']*100):.1f}%")
+                        
+                        st.markdown(f"**Average Sentiment Score:** `{sentiment_data['avg_sentiment']:.3f}` | **Total Comments Analyzed:** `{sentiment_data['total']:,}`")
+                        
+                        # Distribution bar
+                        pos_pct = (sentiment_data["positive"] / sentiment_data["total"]) * 100
+                        neu_pct = (sentiment_data["neutral"] / sentiment_data["total"]) * 100
+                        neg_pct = (sentiment_data["negative"] / sentiment_data["total"]) * 100
+                        st.markdown("**Sentiment Distribution:**")
+                        st.markdown(create_distribution_bar(pos_pct, neu_pct, neg_pct, width=400), unsafe_allow_html=True)
+                        st.caption(f"{pos_pct:.0f}% Positive | {neu_pct:.0f}% Neutral | {neg_pct:.0f}% Negative")
+                        
+                        st.markdown("---")
+                        
+                        # Trend analysis
+                        st.markdown("#### Trend Analysis")
+                        analysis_text = generate_overall_analysis(sentiment_data)
+                        st.info(analysis_text)
+                        
+                        # 24-hour trend sparkline
+                        if "time_series" in sentiment_data and sentiment_data["time_series"]:
+                            st.markdown("**Past 24 Hours Trend:**")
+                            sparkline_html = create_sparkline(sentiment_data.get("time_series", []), width=400, height=60)
+                            st.markdown(f"<div style='display: flex; justify-content: center;'>{sparkline_html}</div>", unsafe_allow_html=True)
+                    
+                    st.session_state.custom_video_analyzed = {
+                        "video": video_details,
+                        "sentiment": sentiment_data
+                    }
+elif st.session_state.custom_video_analyzed:
+    # Show previously analyzed video
+    video_details = st.session_state.custom_video_analyzed["video"]
+    sentiment_data = st.session_state.custom_video_analyzed["sentiment"]
+    
+    with st.expander(f"📊 Analysis Results: {video_details['title']}", expanded=True):
+        # Video info
+        st.markdown("#### Video Information")
+        info_cols = st.columns(4)
+        with info_cols[0]:
+            st.metric("Views", f"{video_details['views']:,}")
+        with info_cols[1]:
+            st.metric("Likes", f"{video_details['likes']:,}")
+        with info_cols[2]:
+            st.metric("Comments", f"{video_details['comments']:,}")
+        with info_cols[3]:
+            sentiment_score = sentiment_data["avg_sentiment"]
+            sentiment_emoji = "🟢" if sentiment_score >= 0.05 else "🔴" if sentiment_score <= -0.05 else "⚪"
+            st.metric("Sentiment", f"{sentiment_emoji} {sentiment_score:.3f}")
+        
+        st.markdown(f"**Channel:** {video_details['channel']}")
+        st.markdown(f"[Watch on YouTube](https://www.youtube.com/watch?v={video_details['video_id']})")
+        st.markdown("---")
+        
+        # Sentiment metrics
+        st.markdown("#### Sentiment Breakdown")
+        metric_cols = st.columns(3)
+        with metric_cols[0]:
+            st.metric("Positive", sentiment_data['positive'], f"{(sentiment_data['positive']/sentiment_data['total']*100):.1f}%")
+        with metric_cols[1]:
+            st.metric("Neutral", sentiment_data['neutral'], f"{(sentiment_data['neutral']/sentiment_data['total']*100):.1f}%")
+        with metric_cols[2]:
+            st.metric("Negative", sentiment_data['negative'], f"{(sentiment_data['negative']/sentiment_data['total']*100):.1f}%")
+        
+        st.markdown(f"**Average Sentiment Score:** `{sentiment_data['avg_sentiment']:.3f}` | **Total Comments Analyzed:** `{sentiment_data['total']:,}`")
+        
+        # Distribution bar
+        pos_pct = (sentiment_data["positive"] / sentiment_data["total"]) * 100
+        neu_pct = (sentiment_data["neutral"] / sentiment_data["total"]) * 100
+        neg_pct = (sentiment_data["negative"] / sentiment_data["total"]) * 100
+        st.markdown("**Sentiment Distribution:**")
+        st.markdown(create_distribution_bar(pos_pct, neu_pct, neg_pct, width=400), unsafe_allow_html=True)
+        st.caption(f"{pos_pct:.0f}% Positive | {neu_pct:.0f}% Neutral | {neg_pct:.0f}% Negative")
+        
+        st.markdown("---")
+        
+        # Trend analysis
+        st.markdown("#### Trend Analysis")
+        analysis_text = generate_overall_analysis(sentiment_data)
+        st.info(analysis_text)
+        
+        # 24-hour trend sparkline
+        if "time_series" in sentiment_data and sentiment_data["time_series"]:
+            st.markdown("**Past 24 Hours Trend:**")
+            sparkline_html = create_sparkline(sentiment_data.get("time_series", []), width=400, height=60)
+            st.markdown(f"<div style='display: flex; justify-content: center;'>{sparkline_html}</div>", unsafe_allow_html=True)
+
+st.markdown("---")
+st.markdown("### 📈 Trending Videos Analysis")
+
+@st.cache_data(ttl=300)
+def fetch_trending_videos(api_key: str, region: str, max_results: int = 10):
+    return get_trending_videos(api_key, region=region, max_results=max_results)
+
+videos = fetch_trending_videos(api_key, region, max_results)
+if not videos:
+    st.info("No trending videos found")
+    st.stop()
+
 # Initialize session state for expanded rows
 if "expanded_video" not in st.session_state:
     st.session_state.expanded_video = None
@@ -312,7 +533,8 @@ if all_sentiments:
     total_negative = sum(s["negative"] for s in all_sentiments)
     avg_sentiment = sum(s["avg_sentiment"] for s in all_sentiments) / len(all_sentiments)
     
-    # Display KPIs
+    # Display KPIs with better styling
+    st.markdown("### Overview Metrics")
     kpi_cols = st.columns(5)
     with kpi_cols[0]:
         st.metric("Videos Analyzed", len(video_sentiment_data))
@@ -328,14 +550,13 @@ if all_sentiments:
     
     st.markdown("---")
 
-# Step 3: Add sort/filter controls
-sort_col1, sort_col2 = st.columns([1, 3])
-with sort_col1:
-    sort_by = st.selectbox(
-        "Sort by",
-        ["Default", "Sentiment (High to Low)", "Sentiment (Low to High)", "Views (High to Low)", "Comments (High to Low)"],
-        key="sort_option"
-    )
+# Step 3: Add sort/filter controls - positioned above table for better visibility
+sort_by = st.selectbox(
+    "🔀 Sort by",
+    ["Default", "Sentiment (High to Low)", "Sentiment (Low to High)", "Views (High to Low)", "Comments (High to Low)"],
+    key="sort_option",
+    help="Sort the videos by different criteria"
+)
 
 # Apply sorting
 if sort_by != "Default":
@@ -362,8 +583,24 @@ if sort_by != "Default":
     # Re-index to maintain numbering
     video_sentiment_data = {i+1: data for i, (_, data) in enumerate(sorted_items)}
 
-# Table header row
-header_cols = st.columns([0.3, 3, 1.5, 1, 1, 1.5, 1, 0.5])
+# Table header row with better styling
+st.markdown("### Video Analysis")
+st.markdown("")
+
+# Add CSS for table row styling
+st.markdown("""
+    <style>
+    .video-row {
+        padding: 0.75rem 0;
+        border-bottom: 1px solid #e5e7eb;
+    }
+    .video-row:hover {
+        background-color: #f9fafb;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+header_cols = st.columns([0.3, 3, 1.5, 1, 1, 1.5, 1, 1.2])
 with header_cols[0]:
     st.markdown("**#**")
 with header_cols[1]:
@@ -379,7 +616,7 @@ with header_cols[5]:
 with header_cols[6]:
     st.markdown("**Distribution**")
 with header_cols[7]:
-    st.markdown("**Past 24 hours**")
+    st.markdown("<div style='text-align: center;'><strong>Past 24 hours</strong></div>", unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -389,15 +626,20 @@ for i, data in video_sentiment_data.items():
     sentiment_data = data["sentiment"]
     video_id = video["video_id"]  # Extract video_id for use in expanded view
     
-    # Create row with columns
-    cols = st.columns([0.3, 3, 1.5, 1, 1, 1.5, 1, 0.5])
+    # Add spacing between rows
+    if i > 1:
+        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
+    
+    # Create row with columns (matching header column widths)
+    cols = st.columns([0.3, 3, 1.5, 1, 1, 1.5, 1, 1.2])
     
     with cols[0]:
-        st.write(f"**#{i}**")
+        st.markdown(f"<div style='text-align: center; font-weight: 600; color: #6b7280;'>{i}</div>", unsafe_allow_html=True)
     
     with cols[1]:
         video_title = f"{video['title'][:60]}..." if len(video['title']) > 60 else video['title']
-        if st.button(f"📹 {video_title}", key=f"video_{i}", use_container_width=True):
+        button_label = f"▶️ {video_title}" if st.session_state.expanded_video != i else f"▼ {video_title}"
+        if st.button(button_label, key=f"video_{i}", use_container_width=True):
             if st.session_state.expanded_video == i:
                 st.session_state.expanded_video = None
             else:
@@ -438,13 +680,15 @@ for i, data in video_sentiment_data.items():
     
     with cols[7]:
         if sentiment_data and "time_series" in sentiment_data:
-            st.markdown(create_sparkline(sentiment_data.get("time_series", [])), unsafe_allow_html=True)
+            sparkline_html = create_sparkline(sentiment_data.get("time_series", []))
+            st.markdown(f"<div style='display: flex; justify-content: center; align-items: center;'>{sparkline_html}</div>", unsafe_allow_html=True)
         else:
-            st.write("—")
+            st.markdown("<div style='text-align: center;'>—</div>", unsafe_allow_html=True)
     
     # Expanded detail section
     if st.session_state.expanded_video == i:
-        with st.expander(f"📊 Detailed Analysis: {video['title']}", expanded=True):
+        st.markdown("")  # Add spacing before expander
+        with st.expander(f"**Detailed Analysis:** {video['title'][:80]}", expanded=True):
             # Use the sentiment_data already calculated for this video
             # (it's already in video_sentiment_data from the collection loop)
             expanded_sentiment_data = sentiment_data
@@ -459,9 +703,8 @@ for i, data in video_sentiment_data.items():
                         st.session_state.sentiment_cache[video_id] = expanded_sentiment_data
             
             if expanded_sentiment_data:
-                st.markdown(f"**Average Sentiment:** {expanded_sentiment_data['avg_sentiment']:.3f}")
-                st.markdown(f"**Total Comments Analyzed:** {expanded_sentiment_data['total']}")
-                
+                # Key metrics section
+                st.markdown("#### Key Metrics")
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Positive", expanded_sentiment_data['positive'], f"{(expanded_sentiment_data['positive']/expanded_sentiment_data['total']*100):.1f}%")
@@ -470,11 +713,14 @@ for i, data in video_sentiment_data.items():
                 with col3:
                     st.metric("Negative", expanded_sentiment_data['negative'], f"{(expanded_sentiment_data['negative']/expanded_sentiment_data['total']*100):.1f}%")
                 
+                st.markdown(f"**Average Sentiment Score:** `{expanded_sentiment_data['avg_sentiment']:.3f}` | **Total Comments:** `{expanded_sentiment_data['total']:,}`")
+                
                 st.markdown("---")
                 
                 # Overall analysis based on sentiment and trend
+                st.markdown("#### Trend Analysis")
                 analysis_text = generate_overall_analysis(expanded_sentiment_data)
-                st.markdown(analysis_text)
+                st.info(analysis_text)
                 
                 st.markdown("---")
                 # Show video link
@@ -490,7 +736,7 @@ status_text.empty()
 
 # Legend section at bottom
 st.markdown("---")
-with st.expander("📖 Legend & Help", expanded=False):
+with st.expander("Legend & Help", expanded=False):
     st.markdown("### Sentiment Score")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -505,7 +751,7 @@ with st.expander("📖 Legend & Help", expanded=False):
     
     st.markdown("### Past 24 Hours")
     st.markdown("""
-    The sparkline graph shows sentiment trend over the past 24 hours:
+    The sparkline graph in the **Past 24 hours** column shows sentiment trend over the past 24 hours:
     - **Green line** = Overall positive sentiment trend
     - **Red line** = Overall negative sentiment trend  
     - **Gray line** = Neutral sentiment trend
@@ -515,17 +761,26 @@ with st.expander("📖 Legend & Help", expanded=False):
     
     st.markdown("### Distribution Bar")
     st.markdown("""
-    The colored bar shows the percentage breakdown of comments:
+    The colored bar in the **Distribution** column shows the percentage breakdown of comments:
     - **Green** = Positive comments
     - **Gray** = Neutral comments  
     - **Red** = Negative comments
     """)
     
+    st.markdown("### Detailed Analysis")
+    st.markdown("""
+    When you click on a video title, you'll see:
+    - **Key Metrics**: Breakdown of positive, neutral, and negative comments
+    - **Trend Analysis**: Overall analysis of sentiment patterns and trends over the past 24 hours
+    - **Video Link**: Direct link to watch the video on YouTube
+    """)
+    
     st.markdown("### How to Use")
     st.markdown("""
-    - Click on any video title (📹) to see detailed sentiment analysis
-    - Use the **Top** slider to change the number of trending videos displayed
-    - Click **↻ Refresh** to update data immediately
+    - Click on any video title button to expand and see detailed sentiment analysis
+    - Use the **Top** slider to change the number of trending videos displayed (1-20)
+    - Use the **Sort by** dropdown to sort videos by sentiment, views, or comments
+    - Click **Refresh** to update data immediately
     - Data auto-refreshes every 5 minutes
     """)
 

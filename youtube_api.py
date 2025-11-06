@@ -1,5 +1,6 @@
 import time
-from typing import List, Dict
+import re
+from typing import List, Dict, Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -10,6 +11,97 @@ def get_youtube_client(api_key: str):
     YouTube Data API v3 (Google Developers):
     https://developers.google.com/youtube/v3/docs"""
     return build("youtube", "v3", developerKey=api_key, cache_discovery=False)
+
+def extract_video_id(url: str) -> Optional[str]:
+    """Extract video ID from various YouTube URL formats.
+    
+    Supports:
+    - https://www.youtube.com/watch?v=VIDEO_ID
+    - https://youtu.be/VIDEO_ID
+    - https://www.youtube.com/embed/VIDEO_ID
+    - https://m.youtube.com/watch?v=VIDEO_ID
+    - VIDEO_ID (if already just an ID)
+    
+    Args:
+        url: YouTube URL or video ID
+        
+    Returns:
+        Video ID string or None if not found
+    """
+    if not url:
+        return None
+    
+    # If it's already just an ID (11 characters, alphanumeric)
+    if re.match(r'^[a-zA-Z0-9_-]{11}$', url.strip()):
+        return url.strip()
+    
+    # Pattern for standard YouTube URLs
+    patterns = [
+        r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([a-zA-Z0-9_-]{11})',
+        r'youtube\.com\/watch\?.*v=([a-zA-Z0-9_-]{11})',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+def get_video_details(api_key: str, video_id: str, retries: int = 3) -> Optional[Dict]:
+    """Get video details for a specific video ID.
+    
+    Args:
+        api_key: YouTube API key
+        video_id: YouTube video ID
+        retries: Number of retry attempts for errors (default: 3)
+    
+    Returns:
+        Video dictionary with: video_id, title, channel, 
+        published_at, thumb_url, views, likes, comments
+        Returns None if video not found or error occurs
+    """
+    youtube = get_youtube_client(api_key)
+    
+    params = {
+        "part": "snippet,statistics",
+        "id": video_id,
+    }
+    
+    # Retry logic for 429 (Too Many Requests) and 5xx errors
+    for attempt in range(retries):
+        try:
+            response = youtube.videos().list(**params).execute()
+            items = response.get("items", [])
+            
+            if not items:
+                return None
+            
+            item = items[0]
+            stats = item.get("statistics", {}) or {}
+            snippet = item.get("snippet", {}) or {}
+            thumbs = (snippet.get("thumbnails", {}) or {}).get("default", {}) or {}
+            
+            return {
+                "video_id": item.get("id"),
+                "title": snippet.get("title"),
+                "channel": snippet.get("channelTitle"),
+                "published_at": snippet.get("publishedAt"),
+                "thumb_url": thumbs.get("url"),
+                "views": int(stats.get("viewCount", 0) or 0),
+                "likes": int(stats.get("likeCount", 0) or 0),
+                "comments": int(stats.get("commentCount", 0) or 0),
+            }
+            
+        except HttpError as e:
+            if e.resp.status in [429, 500, 502, 503, 504]:
+                time.sleep(2 ** attempt)
+                continue
+            return None
+        except Exception:
+            return None
+    
+    return None
 
 def get_trending_videos(
     api_key: str,
