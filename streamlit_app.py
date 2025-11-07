@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
 from config import get_api_key, get_region, get_max_comments
 from youtube_api import get_trending_videos, get_video_comments, extract_video_id, get_video_details
