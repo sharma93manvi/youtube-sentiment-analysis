@@ -2,6 +2,10 @@
 
 A real-time sentiment analysis dashboard that analyzes YouTube video comments using NLTK VADER sentiment analysis. Analyze trending videos or any YouTube video by pasting a link!
 
+## 🚀 Live Demo
+
+**[Try it live here!](https://youtube-sentiment-intelligence-dashboard.streamlit.app/)**
+
 ## Features
 
 ### Core Features
