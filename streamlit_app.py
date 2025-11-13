@@ -63,27 +63,134 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Region options with country names and codes (defined before use)
+REGION_OPTIONS = {
+    "United States": "US",
+    "Canada": "CA",
+    "United Kingdom": "GB",
+    "India": "IN",
+    "China": "CN",
+    "Japan": "JP",
+    "Australia": "AU",
+    "Germany": "DE",
+    "France": "FR",
+    "Brazil": "BR",
+    "Mexico": "MX",
+    "South Korea": "KR",
+    "Italy": "IT",
+    "Spain": "ES",
+    "Russia": "RU",
+    "Netherlands": "NL",
+    "Sweden": "SE",
+    "Poland": "PL",
+    "Turkey": "TR",
+    "Indonesia": "ID",
+    "Philippines": "PH",
+    "Thailand": "TH",
+    "Vietnam": "VN",
+    "Argentina": "AR",
+    "Chile": "CL",
+    "Colombia": "CO",
+    "South Africa": "ZA",
+    "Egypt": "EG",
+    "Saudi Arabia": "SA",
+    "United Arab Emirates": "AE",
+    "Israel": "IL",
+    "Singapore": "SG",
+    "Malaysia": "MY",
+    "New Zealand": "NZ",
+    "Ireland": "IE",
+    "Belgium": "BE",
+    "Switzerland": "CH",
+    "Austria": "AT",
+    "Norway": "NO",
+    "Denmark": "DK",
+    "Finland": "FI",
+    "Portugal": "PT",
+    "Greece": "GR",
+    "Czech Republic": "CZ",
+    "Romania": "RO",
+    "Hungary": "HU",
+    "Ukraine": "UA",
+}
+
 # Header with title, timestamp, and controls
 st.markdown("<h1 style='margin-bottom: 0.5rem;'>YouTube Sentiment Intelligence Dashboard</h1>", unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([4, 1, 1])
-with col1:
-    st.markdown("<p style='color: #6b7280; margin-top: 0;'>Provides real-time sentiment analysis and trend insights for trending YouTube videos based on recent comments,<br>along with a 24-hour trend visualization for popular videos.</p>", unsafe_allow_html=True)
-with col2:
-    st.caption("**Top**")
-    max_results = st.slider("", 1, 20, 10, key="max_results", label_visibility="collapsed")
-with col3:
-    st.caption(f"**Updated:** {datetime.now().strftime('%b %d, %I:%M %p')}")
-    if st.button("↻ Refresh", use_container_width=True, type="secondary"):
+# Read config first to get default region
+api_key = get_api_key(st.secrets)
+default_region_code = get_region()
+max_comments = get_max_comments()
+
+# Initialize session state for region
+if "selected_region" not in st.session_state:
+    # Find the country name for the default code, or default to "Canada"
+    default_region_name = next((name for name, code in REGION_OPTIONS.items() if code == default_region_code), "Canada")
+    st.session_state.selected_region = default_region_name
+
+# Header controls with improved layout
+st.markdown("<p style='color: #6b7280; margin-top: 0; margin-bottom: 1rem;'>Provides real-time sentiment analysis and trend insights for trending YouTube videos based on recent comments,<br>along with a 24-hour trend visualization for popular videos.</p>", unsafe_allow_html=True)
+
+# Control panel with refreshed layout
+control_cols = st.columns([3, 2, 2])
+with control_cols[0]:
+    st.markdown("**Select Region**")
+    previous_region = st.session_state.selected_region
+    region_list = list(REGION_OPTIONS.keys())
+    # Find index of current region, default to 1 (Canada) if not found
+    try:
+        current_index = region_list.index(st.session_state.selected_region)
+    except ValueError:
+        current_index = 1  # Default to Canada
+    
+    selected_region_name = st.selectbox(
+        "Choose a region to analyze",
+        options=region_list,
+        index=current_index,
+        key="region_selector",
+        help="Select a region to view trending videos and sentiment analysis"
+    )
+    # Update session state and clear cache if region changed
+    if selected_region_name != previous_region:
+        st.session_state.selected_region = selected_region_name
         st.cache_data.clear()
+    
+    st.write("")
+    st.checkbox(
+        "Compare regions",
+        value=st.session_state.get("comparison_mode", False),
+        key="comparison_mode",
+        help="Enable to compare sentiment across multiple regions"
+    )
+
+with control_cols[1]:
+    st.markdown("**Number of Videos**")
+    max_results = st.slider(
+        "Top N videos to analyze",
+        1, 20, 10,
+        key="max_results",
+        help="Select how many trending videos to analyze (1-20)"
+    )
+
+with control_cols[2]:
+    st.markdown("**Last Updated**")
+    st.caption(f"{datetime.now().strftime('%b %d, %I:%M %p')}")
+    if st.button("Refresh Data", use_container_width=True, type="primary"):
+        st.cache_data.clear()
+        st.rerun()
 
 st.markdown("---")
 
-# Read config
-# Pass st.secrets for Streamlit Cloud compatibility (secrets are always available in Streamlit)
-api_key = get_api_key(st.secrets)
-region = get_region()
-max_comments = get_max_comments()
+# Get comparison mode from session state
+comparison_mode = st.session_state.get("comparison_mode", False)
+
+# Get region code from selected region name
+region = REGION_OPTIONS.get(st.session_state.selected_region, "CA")
+
+# Define cached function for fetching trending videos (needed for comparison feature)
+@st.cache_data(ttl=300)
+def fetch_trending_videos(api_key: str, region: str, max_results: int = 10):
+    return get_trending_videos(api_key, region=region, max_results=max_results)
 
 # Define helper functions (used by both custom video and trending videos sections)
 def generate_overall_analysis(sentiment_data: dict) -> str:
@@ -473,11 +580,202 @@ elif st.session_state.custom_video_analyzed:
             st.markdown(f"<div style='display: flex; justify-content: center;'>{sparkline_html}</div>", unsafe_allow_html=True)
 
 st.markdown("---")
-st.markdown("### Trending Videos Analysis")
 
-@st.cache_data(ttl=300)
-def fetch_trending_videos(api_key: str, region: str, max_results: int = 10):
-    return get_trending_videos(api_key, region=region, max_results=max_results)
+# Region Comparison Feature
+if comparison_mode:
+    st.markdown("### 🌍 Region Comparison Analysis")
+    st.markdown("Compare sentiment trends across multiple regions for trending videos.")
+    
+    # Initialize comparison regions in session state
+    if "comparison_regions" not in st.session_state:
+        st.session_state.comparison_regions = ["Canada", "United States"]
+    
+    # Region selection for comparison
+    comp_col1, comp_col2 = st.columns([2, 1])
+    with comp_col1:
+        selected_comparison_regions = st.multiselect(
+            "Select regions to compare (2-5 regions recommended)",
+            options=list(REGION_OPTIONS.keys()),
+            default=st.session_state.comparison_regions,
+            key="comparison_regions_selector",
+            help="Select multiple regions to compare their trending video sentiment"
+        )
+    
+    with comp_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Compare", use_container_width=True, type="primary"):
+            st.session_state.comparison_regions = selected_comparison_regions
+            st.cache_data.clear()
+            st.rerun()
+    
+    if len(selected_comparison_regions) >= 2:
+        st.session_state.comparison_regions = selected_comparison_regions
+        
+        # Fetch and analyze data for each region
+        comparison_data = {}
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_regions = len(selected_comparison_regions)
+        for idx, region_name in enumerate(selected_comparison_regions):
+            region_code = REGION_OPTIONS[region_name]
+            progress = (idx) / total_regions
+            progress_bar.progress(progress)
+            status_text.text(f"Analyzing {region_name}... ({idx+1}/{total_regions})")
+            
+            # Fetch trending videos for this region
+            region_videos = fetch_trending_videos(api_key, region_code, max_results)
+            
+            if region_videos:
+                # Analyze sentiment for all videos in this region
+                region_sentiments = []
+                for video in region_videos:
+                    video_id = video["video_id"]
+                    sentiment_data = analyze_video_sentiment(api_key, video_id, max_comments)
+                    if sentiment_data:
+                        region_sentiments.append(sentiment_data)
+                
+                if region_sentiments:
+                    # Calculate aggregate metrics for this region
+                    total_comments = sum(s["total"] for s in region_sentiments)
+                    total_positive = sum(s["positive"] for s in region_sentiments)
+                    total_neutral = sum(s["neutral"] for s in region_sentiments)
+                    total_negative = sum(s["negative"] for s in region_sentiments)
+                    avg_sentiment = sum(s["avg_sentiment"] for s in region_sentiments) / len(region_sentiments)
+                    
+                    comparison_data[region_name] = {
+                        "avg_sentiment": avg_sentiment,
+                        "positive": total_positive,
+                        "neutral": total_neutral,
+                        "negative": total_negative,
+                        "total": total_comments,
+                        "positive_pct": (total_positive / total_comments * 100) if total_comments > 0 else 0,
+                        "neutral_pct": (total_neutral / total_comments * 100) if total_comments > 0 else 0,
+                        "negative_pct": (total_negative / total_comments * 100) if total_comments > 0 else 0,
+                        "video_count": len(region_videos)
+                    }
+        
+        progress_bar.progress(1.0)
+        status_text.empty()
+        progress_bar.empty()
+        
+        if comparison_data:
+            # Display comparison visualizations
+            st.markdown("#### Comparison Metrics")
+            
+            # Create comparison charts
+            import plotly.graph_objects as go
+            from plotly.subplots import make_subplots
+            
+            # Prepare data for charts
+            regions = list(comparison_data.keys())
+            avg_sentiments = [comparison_data[r]["avg_sentiment"] for r in regions]
+            positive_pcts = [comparison_data[r]["positive_pct"] for r in regions]
+            neutral_pcts = [comparison_data[r]["neutral_pct"] for r in regions]
+            negative_pcts = [comparison_data[r]["negative_pct"] for r in regions]
+            total_comments = [comparison_data[r]["total"] for r in regions]
+            
+            # Chart 1: Average Sentiment Comparison
+            fig1 = go.Figure()
+            colors = ['#22c55e' if s >= 0.05 else '#ef4444' if s <= -0.05 else '#94a3b8' for s in avg_sentiments]
+            fig1.add_trace(go.Bar(
+                x=regions,
+                y=avg_sentiments,
+                marker_color=colors,
+                text=[f"{s:.3f}" for s in avg_sentiments],
+                textposition='outside',
+                name="Avg Sentiment"
+            ))
+            fig1.update_layout(
+                title="Average Sentiment Score by Region",
+                xaxis_title="Region",
+                yaxis_title="Sentiment Score",
+                height=400,
+                showlegend=False
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+            
+            # Chart 2: Sentiment Distribution Comparison
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(
+                x=regions,
+                y=positive_pcts,
+                name='Positive',
+                marker_color='#22c55e'
+            ))
+            fig2.add_trace(go.Bar(
+                x=regions,
+                y=neutral_pcts,
+                name='Neutral',
+                marker_color='#94a3b8'
+            ))
+            fig2.add_trace(go.Bar(
+                x=regions,
+                y=negative_pcts,
+                name='Negative',
+                marker_color='#ef4444'
+            ))
+            fig2.update_layout(
+                title="Sentiment Distribution by Region (%)",
+                xaxis_title="Region",
+                yaxis_title="Percentage",
+                barmode='stack',
+                height=400
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+            
+            # Comparison table
+            st.markdown("#### Detailed Comparison")
+            comparison_rows = []
+            for region in regions:
+                data = comparison_data[region]
+                comparison_rows.append({
+                    "Region": region,
+                    "Avg Sentiment": f"{data['avg_sentiment']:.3f}",
+                    "Positive %": f"{data['positive_pct']:.1f}%",
+                    "Neutral %": f"{data['neutral_pct']:.1f}%",
+                    "Negative %": f"{data['negative_pct']:.1f}%",
+                    "Total Comments": f"{data['total']:,}",
+                    "Videos Analyzed": data['video_count']
+                })
+            
+            import pandas as pd
+            comparison_df = pd.DataFrame(comparison_rows)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+            
+            # Insights
+            st.markdown("#### Insights")
+            best_region = max(regions, key=lambda r: comparison_data[r]["avg_sentiment"])
+            worst_region = min(regions, key=lambda r: comparison_data[r]["avg_sentiment"])
+            most_comments = max(regions, key=lambda r: comparison_data[r]["total"])
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(
+                    "Most Positive Region",
+                    best_region,
+                    f"{comparison_data[best_region]['avg_sentiment']:.3f}"
+                )
+            with col2:
+                st.metric(
+                    "Most Negative Region",
+                    worst_region,
+                    f"{comparison_data[worst_region]['avg_sentiment']:.3f}"
+                )
+            with col3:
+                st.metric(
+                    "Most Active Region",
+                    most_comments,
+                    f"{comparison_data[most_comments]['total']:,} comments"
+                )
+    elif len(selected_comparison_regions) == 1:
+        st.warning("⚠️ Please select at least 2 regions to compare.")
+    else:
+        st.info("ℹ️ Select 2 or more regions to enable comparison analysis.")
+    
+    st.markdown("---")
+
+st.markdown("### 📈 Trending Videos Analysis")
 
 videos = fetch_trending_videos(api_key, region, max_results)
 if not videos:
